@@ -112,7 +112,7 @@ class MonteCarloSimulator:
         std_return = returns.std()
         
         # Number of simulations
-        num_simulations = 1000  # Increased for more precision
+        num_simulations = 3000  # Increased for more precision
         
         # Simulation matrix
         simulations = np.zeros((num_simulations, days_to_simulate))
@@ -207,12 +207,12 @@ class MonteCarloSimulator:
         
         # Add yellow dotted line from starting point
         start_value = median_projection[0]
-        ax.axhline(y=start_value, color='yellow', linestyle=':', label='Start Value')
+        ax.axhline(y=start_value, color='yellow', linestyle=':', label=f'Current ({start_value: .2f})')
         
         # Add green/red dotted line from ending point based on value change
         end_value = median_projection[-1]
         line_color = 'green' if end_value >= start_value else 'red'
-        ax.axhline(y=end_value, color=line_color, linestyle=':', label=f'End Value ({line_color})')
+        ax.axhline(y=end_value, color=line_color, linestyle=':', label=f'Future ({end_value: .2f}) \n (~{end_value/start_value: .1f} x')
         
         # Formatting
         ax.set_xlabel('Date')
