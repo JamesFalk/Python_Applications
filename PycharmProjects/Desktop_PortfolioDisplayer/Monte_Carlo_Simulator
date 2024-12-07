@@ -1,4 +1,4 @@
-from tkinter import Tk, Frame, Label, ttk, Button, Entry, StringVar, messagebox, BooleanVar
+from tkinter import Tk, Frame, Label, ttk, Button, Entry, StringVar, messagebox
 from datetime import datetime, timedelta
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
@@ -47,15 +47,6 @@ class MonteCarloSimulator:
         
         self.entry_stock = Entry(self.mstr_grid, justify='center')
         self.entry_stock.grid(row=14, column=5, columnspan=3, sticky='news')
-
-        # Percentage View Toggle
-        self.percentage_var = BooleanVar(value=False)
-        self.percentage_checkbox = ttk.Checkbutton(
-            self.mstr_grid, 
-            text="%MeanVw", 
-            variable=self.percentage_var
-        )
-        self.percentage_checkbox.grid(row=15, column = 8, columnspan=5, sticky='n')
 
         # Simulate Button
         self.btn_pltport = Button(
@@ -133,9 +124,6 @@ class MonteCarloSimulator:
         # Clear previous plots
         self.clear_box_grid()
         
-        # Determine if we're using percentage view
-        use_percentage = self.percentage_var.get()
-        
         # Create figure and axes
         fig, ax = plt.subplots(figsize=(10, 6), dpi=100)
         
@@ -145,49 +133,22 @@ class MonteCarloSimulator:
         last_hist_date = historical_dates[-1]
         sim_dates = [last_hist_date + timedelta(days=i+1) for i in range(sim_days)]
         
-        if use_percentage:
-            # Calculate base for percentage (average of historical prices)
-            base_price = hist_data['Close'].mean()
-            
-            # Convert historical prices to percentage
-            historical_percentages = (hist_data['Close'].values / base_price - 1) * 100
-            
-            # Convert simulations to percentage
-            simulations_percentages = (simulations / base_price - 1) * 100
-            
-            # Plot historical percentage
-            ax.plot(historical_dates, historical_percentages, color='black', label='Historical % Change', linewidth=2)
-            
-            # Calculate percentile paths for percentages
-            percentiles = [
-                np.percentile(simulations_percentages, 10, axis=0),
-                np.percentile(simulations_percentages, 25, axis=0),
-                np.percentile(simulations_percentages, 50, axis=0),
-                np.percentile(simulations_percentages, 75, axis=0),
-                np.percentile(simulations_percentages, 90, axis=0)
-            ]
-            
-            # Formatting
-            ax.set_title(f'Monte Carlo Simulation: {ticker} (% from Avg Price)')
-            ax.set_ylabel('Percentage Change (%)')
-            median_projection = percentiles[2]
-        else:
-            # Plot historical prices
-            ax.plot(historical_dates, hist_data['Close'], color='black', label='Historical Price', linewidth=2)
-            
-            # Calculate percentile paths for prices
-            percentiles = [
-                np.percentile(simulations, 10, axis=0),
-                np.percentile(simulations, 25, axis=0),
-                np.percentile(simulations, 50, axis=0),
-                np.percentile(simulations, 75, axis=0),
-                np.percentile(simulations, 90, axis=0)
-            ]
-            
-            # Formatting
-            ax.set_title(f'Monte Carlo Simulation: {ticker}')
-            ax.set_ylabel('Stock Price')
-            median_projection = percentiles[2]
+        # Plot historical prices
+        ax.plot(historical_dates, hist_data['Close'], color='black', label='Historical Price', linewidth=2)
+        
+        # Calculate percentile paths for prices
+        percentiles = [
+            np.percentile(simulations, 10, axis=0),
+            np.percentile(simulations, 25, axis=0),
+            np.percentile(simulations, 50, axis=0),
+            np.percentile(simulations, 75, axis=0),
+            np.percentile(simulations, 90, axis=0)
+        ]
+        
+        # Formatting
+        ax.set_title(f'Monte Carlo Simulation: {ticker}')
+        ax.set_ylabel('Stock Price')
+        median_projection = percentiles[2]
         
         # Plot percentile ranges with transparency
         colors = ['#FF000033', '#FF000022', '#FF000011', '#0000FF11', '#0000FF22']
@@ -212,7 +173,7 @@ class MonteCarloSimulator:
         # Add green/red dotted line from ending point based on value change
         end_value = median_projection[-1]
         line_color = 'green' if end_value >= start_value else 'red'
-        ax.axhline(y=end_value, color=line_color, linestyle=':', label=f'Future ({end_value: .2f}) \n (~{end_value/start_value: .1f} x')
+        ax.axhline(y=end_value, color=line_color, linestyle=':', label=f'Future ({end_value: .2f}) \n (~{end_value/start_value: .1f} x)')
         
         # Formatting
         ax.set_xlabel('Date')
