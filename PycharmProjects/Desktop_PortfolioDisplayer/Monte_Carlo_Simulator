@@ -1,4 +1,3 @@
-from tkinter import Tk, Frame, Label, ttk, Button, Entry, StringVar, messagebox
 from datetime import datetime, timedelta
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
@@ -48,6 +47,32 @@ class MonteCarloSimulator:
         self.entry_stock = Entry(self.mstr_grid, justify='center')
         self.entry_stock.grid(row=14, column=5, columnspan=3, sticky='news')
 
+        # Backtrack Feature
+        self.lbl_backtrack = Label(self.mstr_grid, text="Backtrack Sim", font=('Helvetica', 8))
+        self.lbl_backtrack.grid(row=15, column=5, columnspan=3, sticky='s')
+
+        # Backtrack Days Display
+        self.backtrack_days = StringVar(value="0")
+        self.lbl_backtrack_days = Label(self.mstr_grid, textvariable=self.backtrack_days, font=('Helvetica', 10))
+        self.lbl_backtrack_days.grid(row=16, column=5, columnspan=3, sticky='news')
+
+        # Backtrack Buttons
+        self.btn_backtrack_minus = Button(
+            self.mstr_grid, 
+            text="-", 
+            font=('Helvetica', 7), 
+            command=self.backtrack_minus
+        )
+        self.btn_backtrack_minus.grid(row=16, column=4, sticky='e')
+
+        self.btn_backtrack_plus = Button(
+            self.mstr_grid, 
+            text="+", 
+            font=('Helvetica', 7), 
+            command=self.backtrack_plus
+        )
+        self.btn_backtrack_plus.grid(row=16, column=8, sticky='w')
+
         # Simulate Button
         self.btn_pltport = Button(
             self.mstr_grid, 
@@ -59,6 +84,18 @@ class MonteCarloSimulator:
 
         # Store last simulation data for potential replotting
         self.last_simulation_data = None
+        self.last_hist_data = None
+
+    def backtrack_minus(self):
+        """Decrease backtrack days"""
+        current_days = int(self.backtrack_days.get())
+        self.backtrack_days.set(str(current_days + 1))
+
+    def backtrack_plus(self):
+        """Increase backtrack days (but not below 0)"""
+        current_days = int(self.backtrack_days.get())
+        if current_days > 0:
+            self.backtrack_days.set(str(current_days - 1))
 
     def clear_box_grid(self):
         """Clears old Monte Carlo Simulation Analysis Chart off of Container Box"""
@@ -79,6 +116,9 @@ class MonteCarloSimulator:
         try:
             # Fetch stock data
             stock = yf.Ticker(ticker)
+            
+            # Calculate end date based on backtrack days
+            
             hist_data = stock.history(period=period_map[period])
             
             if hist_data.empty:
@@ -88,10 +128,14 @@ class MonteCarloSimulator:
             return hist_data
         except Exception as e:
             messagebox.showerror("Error", f"Failed to fetch stock data: {str(e)}")
-            return None
+ 
 
-    def monte_carlo_simulation(self, hist_data, days_to_simulate):
+    def monte_carlo_simulation(self, hist_data, days_to_simulate, backtrack_days=0):
         """Perform Monte Carlo simulation"""
+        
+        if backtrack_days > 0: hist_data = hist_data.iloc[:-backtrack_days]
+                
+        adjusted_days_to_simulate = max(1, days_to_simulate - backtrack_days)
         # Calculate daily returns
         returns = hist_data['Close'].pct_change().dropna()
         
@@ -106,12 +150,12 @@ class MonteCarloSimulator:
         num_simulations = 3000  # Increased for more precision
         
         # Simulation matrix
-        simulations = np.zeros((num_simulations, days_to_simulate))
+        simulations = np.zeros((num_simulations, adjusted_days_to_simulate))
         
         # Run simulations
         for i in range(num_simulations):
             # Generate random daily returns
-            daily_returns = np.random.normal(mean_return, std_return, days_to_simulate)
+            daily_returns = np.random.normal(mean_return, std_return, adjusted_days_to_simulate)
             
             # Calculate price path
             price_path = initial_price * (1 + daily_returns).cumprod()
@@ -119,10 +163,13 @@ class MonteCarloSimulator:
         
         return simulations, initial_price
 
-    def plot_monte_carlo(self, hist_data, simulations, initial_price, ticker):
+    def plot_monte_carlo(self, hist_data, simulations, initial_price, ticker, backtrack_days=0):
         """Tallies and Plots the Statistical Price Range Envelopes with Additional Reference Lines"""
         # Clear previous plots
         self.clear_box_grid()
+        
+        # Adjust historical data based on backtrack days
+        if backtrack_days > 0: hist_data = hist_data.iloc[:-backtrack_days]
         
         # Create figure and axes
         fig, ax = plt.subplots(figsize=(10, 6), dpi=100)
@@ -146,7 +193,8 @@ class MonteCarloSimulator:
         ]
         
         # Formatting
-        ax.set_title(f'Monte Carlo Simulation: {ticker}')
+        title_suffix = f' (Backtracked {backtrack_days} days)' if backtrack_days > 0 else ''
+        ax.set_title(f'Monte Carlo Simulation: {ticker}{title_suffix}')
         ax.set_ylabel('Stock Price')
         median_projection = percentiles[2]
         
@@ -195,6 +243,7 @@ class MonteCarloSimulator:
         # Get ticker and period
         ticker = self.entry_stock.get().upper()
         period = self.prd_select.get()
+        backtrack_days = int(self.backtrack_days.get())
         
         # Validate input
         if not ticker:
@@ -206,14 +255,17 @@ class MonteCarloSimulator:
         if hist_data is None:
             return
         
+        # Store for potential reference
+        self.last_hist_data = hist_data
+        
         # Determine simulation days (1/3 of historical period)
         days_to_simulate = len(hist_data) // 3
         
         # Run Monte Carlo simulation
-        simulations, initial_price = self.monte_carlo_simulation(hist_data, days_to_simulate)
+        simulations, initial_price = self.monte_carlo_simulation(hist_data, days_to_simulate, backtrack_days)
         
         # Plot results
-        self.plot_monte_carlo(hist_data, simulations, initial_price, ticker)
+        self.plot_monte_carlo(hist_data, simulations, initial_price, ticker, backtrack_days)
 
 def main():
     root = Tk()
