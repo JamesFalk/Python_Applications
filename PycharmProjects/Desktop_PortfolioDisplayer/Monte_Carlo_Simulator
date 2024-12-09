@@ -1,3 +1,4 @@
+from tkinter import Tk, Frame, Label, ttk, Button, Entry, StringVar, messagebox
 from datetime import datetime, timedelta
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
@@ -57,42 +58,28 @@ class MonteCarloSimulator:
         self.lbl_backtrack_days.grid(row=16, column=5, columnspan=3, sticky='news')
 
         # Backtrack Buttons
-        self.btn_backtrack_minus = Button(
-            self.mstr_grid, 
-            text="-", 
-            font=('Helvetica', 7), 
-            command=self.backtrack_minus
-        )
+        self.btn_backtrack_minus = Button(self.mstr_grid, text="-", 
+            font=('Helvetica', 7), command=self.backtrack_minus)
         self.btn_backtrack_minus.grid(row=16, column=4, sticky='e')
 
-        self.btn_backtrack_plus = Button(
-            self.mstr_grid, 
-            text="+", 
-            font=('Helvetica', 7), 
-            command=self.backtrack_plus
-        )
+        self.btn_backtrack_plus = Button(self.mstr_grid, text="+", 
+            font=('Helvetica', 7), command=self.backtrack_plus)
         self.btn_backtrack_plus.grid(row=16, column=8, sticky='w')
-
+        
         # Simulate Button
-        self.btn_pltport = Button(
-            self.mstr_grid, 
-            text="S I M U L A T E", 
-            font=('Helvetica', 7), 
-            command=self.simulate_stock
-        )
+        self.btn_pltport = Button(self.mstr_grid,  text="S I M U L A T E", 
+            font=('Helvetica', 7), command=self.simulate_stock)
         self.btn_pltport.grid(row=14, column=9, columnspan=3, sticky='n')
-
+       
         # Store last simulation data for potential replotting
         self.last_simulation_data = None
         self.last_hist_data = None
 
+    """Backtrack Day Buttons"""
     def backtrack_minus(self):
-        """Decrease backtrack days"""
         current_days = int(self.backtrack_days.get())
         self.backtrack_days.set(str(current_days + 1))
-
     def backtrack_plus(self):
-        """Increase backtrack days (but not below 0)"""
         current_days = int(self.backtrack_days.get())
         if current_days > 0:
             self.backtrack_days.set(str(current_days - 1))
@@ -105,75 +92,52 @@ class MonteCarloSimulator:
     def fetch_stock_data(self, ticker, period):
         """Fetches Relevant Historic and Present Market Data given a ticker and time frame"""
         # Convert period to yfinance compatible format
-        period_map = {
-            '1MO': '1mo',
-            '3MO': '3mo',
-            '6MO': '6mo',
-            '1YR': '1y',
-            '5YR': '5y'
-        }
-        
+        period_map = {'1MO': '1mo', '3MO': '3mo', '6MO': '6mo', '1YR': '1y', '5YR': '5y'}      
         try:
             # Fetch stock data
             stock = yf.Ticker(ticker)
-            
             # Calculate end date based on backtrack days
-            
             hist_data = stock.history(period=period_map[period])
-            
             if hist_data.empty:
                 messagebox.showerror("Error", "No data found for the given ticker and period")
-                return None
-            
+                return None       
             return hist_data
         except Exception as e:
             messagebox.showerror("Error", f"Failed to fetch stock data: {str(e)}")
- 
-
+   
+    """Monte Carlo Simulation"""
     def monte_carlo_simulation(self, hist_data, days_to_simulate, backtrack_days=0):
-        """Perform Monte Carlo simulation"""
-        
+        # Adjust historical data based on backtrack days
         if backtrack_days > 0: hist_data = hist_data.iloc[:-backtrack_days]
-                
-        adjusted_days_to_simulate = max(1, days_to_simulate - backtrack_days)
+        adjusted_days_to_simulate = max(1, days_to_simulate - backtrack_days)    
         # Calculate daily returns
         returns = hist_data['Close'].pct_change().dropna()
-        
         # Get initial stock price
         initial_price = hist_data['Close'].iloc[-1]
-        
         # Calculate mean and standard deviation of returns
         mean_return = returns.mean()
         std_return = returns.std()
-        
         # Number of simulations
         num_simulations = 3000  # Increased for more precision
-        
         # Simulation matrix
         simulations = np.zeros((num_simulations, adjusted_days_to_simulate))
-        
         # Run simulations
         for i in range(num_simulations):
             # Generate random daily returns
             daily_returns = np.random.normal(mean_return, std_return, adjusted_days_to_simulate)
-            
             # Calculate price path
             price_path = initial_price * (1 + daily_returns).cumprod()
             simulations[i, :] = price_path
-        
         return simulations, initial_price
 
     def plot_monte_carlo(self, hist_data, simulations, initial_price, ticker, backtrack_days=0):
         """Tallies and Plots the Statistical Price Range Envelopes with Additional Reference Lines"""
         # Clear previous plots
         self.clear_box_grid()
-        
         # Adjust historical data based on backtrack days
         if backtrack_days > 0: hist_data = hist_data.iloc[:-backtrack_days]
-        
         # Create figure and axes
         fig, ax = plt.subplots(figsize=(10, 6), dpi=100)
-        
         # Prepare dates
         historical_dates = hist_data.index
         sim_days = len(simulations[0])
@@ -184,13 +148,9 @@ class MonteCarloSimulator:
         ax.plot(historical_dates, hist_data['Close'], color='black', label='Historical Price', linewidth=2)
         
         # Calculate percentile paths for prices
-        percentiles = [
-            np.percentile(simulations, 10, axis=0),
-            np.percentile(simulations, 25, axis=0),
-            np.percentile(simulations, 50, axis=0),
-            np.percentile(simulations, 75, axis=0),
-            np.percentile(simulations, 90, axis=0)
-        ]
+        percentiles = [np.percentile(simulations, 10, axis=0),
+            np.percentile(simulations, 25, axis=0), np.percentile(simulations, 50, axis=0),
+            np.percentile(simulations, 75, axis=0), np.percentile(simulations, 90, axis=0)]
         
         # Formatting
         title_suffix = f' (Backtracked {backtrack_days} days)' if backtrack_days > 0 else ''
@@ -203,13 +163,7 @@ class MonteCarloSimulator:
         labels = ['10th-90th', '25th-75th', 'Median']
         
         for i in range(len(percentiles) - 2):
-            ax.fill_between(
-                sim_dates, 
-                percentiles[i], 
-                percentiles[-(i+1)], 
-                color=colors[i], 
-                label=labels[i]
-            )
+            ax.fill_between(sim_dates, percentiles[i], percentiles[-(i+1)], color=colors[i], label=labels[i])
         
         # Plot median path
         ax.plot(sim_dates, median_projection, color='blue', linestyle='--', label='Median Projection')
