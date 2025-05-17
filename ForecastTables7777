@@ -1,0 +1,1062 @@
+import tkinter as tk
+from tkinter import Tk, Frame, Label, ttk, Button, StringVar
+import yfinance as yf
+import numpy as np
+import pandas as pd
+import math
+from statistics import mean
+from datetime import datetime
+import os
+import time
+
+# Column configuration
+COLUMN_WIDTHS = {'    [Asset     (Prsnt | Ṁ | tm mWP~mF | cWP~cF)    |   ĒNV   |  Årn  | RSI]': 24,  'Assets:': 8,   'INDEX': 2, 'RSI': 9, 'ENV': 8, 'hWk': 8,  'Current': 12, 'Future': 12, 'Aroon': 7,  'WinPo': 10, 'FutDay': 5, 'WinRate' : 8}
+# Column visibility flags
+VISIBLE_COLUMNS = {'    [Asset     (Prsnt | Ṁ | tm mWP~mF | cWP~cF)    |   ĒNV   |  Årn  | RSI]': True,  'Assets:': False,    'INDEX': False, 'RSI': False, 'ENV': False,  'hWk': False, 'Current': False, 'Future': False, 'Aroon': False, 'WinPo': False, 'FutDay': False, 'WinRate': False}
+
+
+# FORECAST TABLES;
+#tckOOO -  INDICATORs
+tckr000 = ['HOOD', 'SPY', 'QQQ', 'DIA', 'COIN', 'BTC-USD', 'ETH-USD', 'SVIX']
+
+#tckrO - CRYPTOs
+#tckr0 = ['ADA-USD',  'BTC-USD', 'DOGE-USD',  'LTC-USD', 'XRP-USD']
+tckr0 = ['AAVE-USD', 'ADA-USD', 'ARB11841-USD', 'BCH-USD', 'BONK-USD', 'BTC-USD', 'COMP5692-USD', 'DOGE-USD', 'ETC-USD', 'ETH-USD', 'LINK-USD', 'LTC-USD', 'PENGU34466-USD', 'POPCAT28782-USD', 'PNUT-USD', 'SHIB-USD', 'SOL-USD', 'UNI7083-USD', 'WIF-USD', 'XLM-USD', 'XRP-USD', 'XTZ-USD']
+
+
+#tckrXXX - 3x BULL ETFs, 3xBEAR ETFs
+tckr777 = ['BITU', 'DPST', 'DRN', 'ETHU', 'FNGU', 'GUSH', 'JETU', 'LABU', 'SHNY', 'SOXL', 
+'SPXL', 'SPYU', 'SVIX', 'TECL', 'TMF', 'TNA', 'TQQQ', 'UDOW', 'UPRO', 'WTIU', 'YINN' ]
+tckr666 = ['DRIP', 'ETHD',  'DRV',  'FAZ', 'FNGD', 'LABD', 'SBIT', 'SDOW',  'SOXS', 'SPXS',
+           'SPXU', 'SQQQ', 'SRTY',  'TMV', 'TZA', 'UVIX',  'YANG']
+tckr555 = ['BITU', 'BITX', 'DRIP', 'DRN', 'DRV', 'FAZ', 'FNGD', 'HODL', 'IBIT', 'LABD', 'SDOW', 'SHNY', 'SOXS', 'SPXS', 'SPXU', 'SQQQ', 'SRTY', 'TMF', 'TZA', 'UVIX', 'YANG']
+
+#tckrGG --STOCKS (10 lists)
+tckr01 = []
+
+tckr02 = []
+tckr03 = []
+tckr04 = []
+tckr05 = []
+tckr06 = []
+tckr07 = []
+tckr08 = []
+tckr09 = []
+tckr10 = []
+
+      
+#tckrEEE - HOT LIST
+tckr888 = ['ALLT', 'ASTS', 'CLOV', 'IONQ', 'KINS', 'NB', 'NUTX', 'OPFI', 'PLTR', 'QBTS', 'QUBT', 'RCAT', 'RGTI', 'RKLB', 'RPID', 'SKIL', 'UAMY', 'WGS']
+
+
+
+
+
+        
+           
+# Ticker_Lists    
+ticker_lists = ['INDICATORS', 'CRYPTOs', '3xBULLS', '3xBEARS', 'HOT ETFs', 'HOT LIST',
+                       'STOCKS 1', 'STOCKS 2', 'STOCKS 3', 'STOCKS 4', 'STOCKS 5', 
+                       'STOCKS 6', 'STOCKS 7', 'STOCKS 8', 'STOCKS 9', 'STOCKS 10']
+tckr_lists = [tckr000, tckr0, tckr777, tckr666, tckr555, tckr888, 
+                       tckr01, tckr02, tckr03, tckr04, tckr05, 
+                       tckr06, tckr07, tckr08, tckr09, tckr10]
+ 
+ 
+ 
+class TickerDataCache:
+    def __init__(self, cache_duration=3600, cache_dir=None):
+        self._memory_cache = {}  # Short-term memory cache
+        self._cache_duration = cache_duration
+        # Use same cache directory as DataManager
+        self.cache_dir = cache_dir or os.path.join(os.getcwd(), '+MarketApps/stock_cache')
+    def _get_cache_path(self, ticker, period):
+        """Use same file naming convention as DataManager"""
+        safe_ticker = ticker.replace('-', '_').replace('.', '_')
+        return os.path.join(self.cache_dir, f"{safe_ticker}_{period}.csv")
+    def get(self, ticker, period):
+        cache_key = (ticker, period)
+        # First check memory cache
+        if cache_key in self._memory_cache:
+            data, timestamp = self._memory_cache[cache_key]
+            if time.time() - timestamp < self._cache_duration:
+                return data
+            else:
+                del self._memory_cache[cache_key]
+        # If not in memory, check file cache
+        cache_file = self._get_cache_path(ticker, period)
+        if os.path.exists(cache_file):
+            try:
+                data = pd.read_csv(cache_file, index_col=0, parse_dates=True)
+                # Store in memory cache too
+                self._memory_cache[cache_key] = (data, time.time())
+                return data
+            except Exception as e:
+                print(f"Error reading cache file: {e}")
+        return None
+    def set(self, ticker, period, data):
+        cache_key = (ticker, period)
+        # Save to memory cache
+        self._memory_cache[cache_key] = (data, time.time())
+        # Also save to file cache
+        cache_file = self._get_cache_path(ticker, period)
+        try:
+            data.to_csv(cache_file)
+        except Exception as e:
+            print(f"Error saving to cache file: {e}")
+    def clear(self):
+        # Clear memory cache
+        current_time = time.time()
+        expired_keys = [
+            key for key, (_, timestamp) in self._memory_cache.items()
+            if current_time - timestamp >= self._cache_duration]
+        for key in expired_keys:
+            del self._memory_cache[key]
+    def get_cache_stats(self):
+        total_entries = len(self._memory_cache)
+        current_time = time.time()
+        active_entries = sum(
+            1 for _, timestamp in self._memory_cache.values()
+            if current_time - timestamp < self._cache_duration)
+        # Add file cache stats
+        file_entries = len([f for f in os.listdir(self.cache_dir) if f.endswith('.csv')])
+        return {
+            'memory_entries': total_entries,
+            'active_memory_entries': active_entries,
+            'file_entries': file_entries,
+            'cache_duration': self._cache_duration}
+
+
+#POPUP KEYBOARD (CLASS)
+class PopupKeyboard:
+        def __init__(self, master, input_box):
+              self.master = master
+              self.input_box = input_box
+              self.keyboard_window = None
+              self.sort_mode = tk.StringVar(value="Envelope")
+              self.srtUpDn_mode = tk.StringVar(value="sort[+]")
+              self.srtUpDn_modes = ["sort[+]", "sort[-]"]
+              self.srtUpDn_weights = {"sort[+]": 0, "sort[-]": 1}
+              self.srtUpDn_btn = None
+              self.wp_mode = tk.StringVar(value="wp[0,1]")
+              self.wp_modes = ["wp[0,1]", "wp[1,1]", "wp[2,1]", "wp[4,1]", "wp[8,1]"]
+              self.wp_weights = {"wp[0,1]": 0, "wp[1,1]": 1, "wp[2,1]": 2, "wp[4,1]": 4, "wp[8,1]": 8}
+              self.wp_toggle_btn = None
+              # For long press handling
+              self.press_start = None
+              self.long_press_threshold = 500  # milliseconds
+              self.long_press_timer = None
+              
+        def toggle_keyboard(self):
+               if self.keyboard_window is None or not self.keyboard_window.winfo_exists():
+                   self.show_keyboard()
+               else: self.hide_keyboard()
+        def show_keyboard(self):
+              # Create new window
+              self.keyboard_window = tk.Toplevel(self.master)
+              self.keyboard_window.title("Ticker Keyboard")
+              # Simple resize prevention
+              self.keyboard_window.resizable(0, 0)
+              # Position the keyboard window near the input box
+              x = self.master.winfo_x() + self.input_box.winfo_x() - 45
+              y = self.master.winfo_y() + self.input_box.winfo_y() + 230
+              self.keyboard_window.geometry(f"+{x}+{y}")
+             # Define the keyboard layout with dropdown instead of sort button
+              keyboard_layout = [
+                       ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'],
+                       ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'],
+                       ['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L'],
+                       ['wp_toggle','Z', 'X', 'C', 'V', 'B', 'N', 'M','-USD'],
+                       ['srtUpDn','sort_dropdown','SPACE','《','clear']]
+               # Style configuration
+              button_style = {'width': 1,'height': 1,'font': ('Helvetica', 4),'relief': 'raised',
+                      'bg': '#f0f0f0','activebackground': '#e0e0e0'}
+              # Create keyboard buttons
+              for row_idx, row in enumerate(keyboard_layout):
+                    frame = tk.Frame(self.keyboard_window)
+                    frame.pack(pady=1)
+                    for key in row:
+                         if key == 'SPACE':
+                               btn = tk.Button(frame, text=key, width=29, **{k:v for k,v in button_style.items() if k != 'width'}, command=lambda k=' ': self.on_key_press(k))
+                         elif key == '《':
+                              btn = tk.Button(frame, text=key, height=1, width=2, font=('Helvetica', 4),
+                                  relief='raised', bg='#f0f0f0', activebackground='#e0e0e0',
+                                  command=self.backspace)
+                         elif key == 'clear':
+                               btn = tk.Button(frame, text=key, **button_style,
+                                  command=self.clear_input)
+                         elif key == 'wp_toggle':
+                               # Create wp toggle button with current mode
+                               self.wp_toggle_btn = tk.Button(frame, text=self.wp_mode.get(), 
+                                                                      **button_style)
+                               self.wp_toggle_btn.bind('<ButtonPress-1>', self.on_wp_button_press)
+                               self.wp_toggle_btn.bind('<ButtonRelease-1>', self.on_wp_button_release)
+                               self.wp_toggle_btn.pack(side=tk.LEFT, padx=1)
+                               continue
+                         elif key == 'srtUpDn':
+                               # Create wp toggle button with current mode
+                               self.srtUpDn_btn = tk.Button(frame, text=self.srtUpDn_mode.get(), 
+                                                                      **button_style)
+                               self.srtUpDn_btn.bind('<ButtonPress-1>', self.srtUpDn_button_press)
+                               self.srtUpDn_btn.pack(side=tk.LEFT, padx=1)
+                               continue
+                         elif key == 'sort_dropdown':
+                               # Create sort dropdown menu
+                               sort_options = ['WinPo', 'WinRate', 'Aroon', 'RSI', 'Envelope', 'hWk', 'ABC']
+                               self.sort_dropdown = ttk.Combobox(frame, textvariable=self.sort_mode, 
+                                                    values=sort_options, width=7, 
+                                                    font=('Helvetica', 8), state='readonly')
+                               self.sort_dropdown.bind('<<ComboboxSelected>>', self.on_sort_change)
+                               self.sort_dropdown.pack(side=tk.LEFT, padx=1)
+                               continue
+                         else:
+                               btn = tk.Button(frame, text=key, **button_style,
+                                  command=lambda k=key: self.on_key_press(k))
+                         if key != 'sort_dropdown':  btn.pack(side=tk.LEFT, padx=1)
+        def on_sort_change(self, event):
+               # Trigger display update with new sort mode
+              display_ticker_tables(None)
+        def hide_keyboard(self):
+               if self.keyboard_window:
+                    self.keyboard_window.destroy()
+                    self.keyboard_window = None
+        def on_key_press(self, key):
+               current_text = self.input_box.get("1.0", tk.END)
+               if key == '-USD':
+                     if current_text.strip():  # Only add -USD if there's text
+                           if not current_text.strip().endswith('-USD'):
+                                 self.input_box.insert(tk.END, '-USD ')
+               else:
+                      self.input_box.insert(tk.END, key)
+               # Ensure the last line is visible
+               self.input_box.see(tk.END)
+        def backspace(self):
+               # Get current text content
+               content = self.input_box.get("1.0", "end-1c") 
+               if content:  # If text ends with "-USD ", remove the whole suffix
+                     if content.endswith('-USD '):
+                          self.input_box.delete("1.0", tk.END)  # Clear all
+                          self.input_box.insert("1.0", content[:-5])  # Insert without "-USD "
+                     else: # Remove last character
+                             self.input_box.delete("1.0", tk.END)  # Clear all
+                             self.input_box.insert("1.0", content[:-1])
+                     # Ensure the last line is visible
+                     self.input_box.see(tk.END)
+        def clear_input(self): self.input_box.delete("1.0", tk.END)
+        def on_wp_button_press(self, event):
+            self.press_start = time.time() * 1000  # Convert to milliseconds
+            # Start timer for long press
+            self.long_press_timer = self.master.after(self.long_press_threshold, self.handle_long_press)
+        def on_wp_button_release(self, event):
+            if self.long_press_timer:
+                self.master.after_cancel(self.long_press_timer)
+            # If release happens before threshold, treat as normal click
+            if self.press_start and (time.time() * 1000 - self.press_start < self.long_press_threshold):
+                self.toggle_wp_mode()
+            self.press_start = None
+            self.long_press_timer = None
+        def handle_long_press(self):
+            # Reset to wp[0,1]
+            self.wp_mode.set("wp[0,1]")
+            if self.wp_toggle_btn:
+                self.wp_toggle_btn.config(text="wp[0,1]")
+            # Trigger display update with new weights
+            display_ticker_tables(None)
+            # Clear timer
+            self.long_press_timer = None
+        def toggle_wp_mode(self):
+               current_mode = self.wp_mode.get()
+               current_index = self.wp_modes.index(current_mode)
+               next_index = (current_index + 1) % len(self.wp_modes)
+               next_mode = self.wp_modes[next_index]
+               self.wp_mode.set(next_mode)
+               # Update button text
+               if self.wp_toggle_btn:
+                   self.wp_toggle_btn.config(text=next_mode)
+               # Trigger display update with new weights
+               display_ticker_tables(None)
+        def srtUpDn_button_press(self, event):
+           	current_mode = self.srtUpDn_mode.get()
+           	current_index = self.srtUpDn_modes.index(current_mode)
+           	next_index = (current_index + 1) % len(self.srtUpDn_modes)
+           	next_mode = self.srtUpDn_modes[next_index]
+           	self.srtUpDn_mode.set(next_mode)
+           	if self.srtUpDn_btn: 
+                   self.srtUpDn_btn.config(text=next_mode)
+           	display_ticker_tables(None)
+           	         
+
+
+
+# Main (Title Window)
+master = Tk(); master.title("ForecastTables7777")
+master.geometry("800x800+200+100") 
+# master_grid (Grid)
+mstr_grid = Frame(master, width=1000, height=1250); mstr_grid.grid()
+for i in range(40):  # 40 rows
+    mstr_grid.grid_rowconfigure(i, weight=1, minsize=35)
+for i in range(12):  # 12 columns
+    mstr_grid.grid_columnconfigure(i, weight=1, minsize=70)
+mstr_grid.grid_propagate(True)
+
+# Market Conditions Table (Label with Dynamic Clock)
+lbl_marketindicesTable = Label(mstr_grid, font = ('Arial', 5, 'bold'))
+lbl_marketindicesTable.grid(row=8, column=0,  columnspan = 8, rowspan=2, sticky='ews')
+def update_mtable_clock():
+       current_time = time.strftime('%m-%d-%Y   %I:%M:%S %p MST')
+       clock_text = f"        MARKET CONDITIONS:    ({current_time})\n Index:  \t    Up  \t   Nt \t Dn  \t Odds  \t   Årn   \t    RSI      Gravity"
+       lbl_marketindicesTable.config(text=clock_text)
+       master.after(1000, update_mtable_clock)
+#Market Conditions Table (Dynamic Label)
+indice_row_labels = []
+for f in range(10, 16):
+    label = Label(mstr_grid, justify='left', text='---', font = ('Arial', 5))
+    label.grid(row=f, column=0, columnspan = 8, sticky='news')
+    indice_row_labels.append(label)
+
+
+#Forecast Table (Static Label)
+ticker_text = "Asset Forecast Table: \n [Asset  (Prsnt| Ṁ |tm mWP~mF|cWP~cF)     |  ĒNV  | Årn | RSI]"
+lbl_TickerTable = Label(mstr_grid, text=f"{ticker_text}", font = ('Arial', 6))
+lbl_TickerTable.grid(row=16, column=0, columnspan = 8, rowspan= 2, sticky='news')
+#Forecast Table (Dynamic Label)
+ticker_row_labels = []
+for f in range(18, 48):
+    label = Label(mstr_grid, justify='left', text='---', font = ('Arial', 6))
+    label.grid(row=f, column=0, columnspan = 8,sticky='news')
+    ticker_row_labels.append(label)
+
+
+# Inputbox (Label)
+lbl_input = Label(mstr_grid, text="    Type/Paste Spaced A-List:")
+lbl_input.grid(row=0, column=0, columnspan=4, sticky='s')
+#Input (Box)
+input_box = tk.Text(mstr_grid, width=12, height=2, wrap=tk.WORD)
+input_box.grid(row=1, column = 0, rowspan=2, columnspan=5, sticky='news')
+# Input Box (Scrollbar)
+input_scrollbar = tk.Scrollbar(mstr_grid, orient='vertical', command=input_box.yview)
+input_scrollbar.grid(row=1, column=5, rowspan = 2, sticky='ns')
+input_box.config(yscrollcommand=input_scrollbar.set)
+#Initialize Keyboard (Variable)
+keyboard = PopupKeyboard(master, input_box)
+
+
+# Output (Box)
+output_box = tk.Text(mstr_grid, height=2, width=1, state = 'disabled')
+output_box.grid(row=5, column=0,  rowspan=3, columnspan=8, sticky='news')
+
+#Copy List to Input Box (Function)
+def get_displayed_tickers():
+       displayed_tickers = []
+       for label in ticker_row_labels:
+             text = label.cget("text")
+             if text and text != '---':
+                  # Extract just the ticker symbol (everything before the first ':')
+                  ticker = text.split(' ')[0].strip()
+                  # Convert back from display format
+                  ticker = ticker.replace('*', '-USD').replace('ARB', 'ARB11841').replace('COMP', 'COMP5692').replace('PENG', 'PENGU34466').replace('PEPE', 'PEPE24478').replace('PCAT', 'POPCAT28782').replace('UNI', 'UNI7083')
+                  displayed_tickers.append(ticker)
+       return displayed_tickers
+
+#Convert (Function)
+def convert_text():
+    output_box.config(state='normal')
+    # Get current text from output box to determine state
+    current_text = output_box.get("1.0", "end-1c").strip()
+    input_text = input_box.get("1.0", "end-1c")
+    words = input_text.split()
+    # Remove duplicates and alphabetize
+    seen = set()
+    uppercase_words = []
+    for word in words:
+        word_upper = word.upper()
+        if word_upper not in seen:
+            seen.add(word_upper)
+            uppercase_words.append(word_upper)
+    # Always sort alphabetically
+    uppercase_words.sort()
+    # Check if output box is empty (first push)
+    if not current_text:
+        # Display with spaces
+        output_box.delete("1.0", tk.END)
+        output_box.insert("1.0", ' '.join(uppercase_words))
+    # Check if output contains spaces but no "tckr =" (second push)
+    elif ' ' in current_text and "tckr =" not in current_text:
+        # Create List (chunks of 30 tickers)
+        result_lists = []
+        current_list = []
+        list_counter = 1
+        # Fill lists maintaining alphabetical order
+        for word in uppercase_words:  # uppercase_words is already sorted
+            current_list.append(word)
+            if len(current_list) == 30:
+                # Format the full list as a string
+                list_str = f"tckr = {str(current_list)}\n"
+                result_lists.append(list_str)
+                current_list = []
+                list_counter += 1
+        # Handle any remaining tickers
+        if current_list:
+            list_str = f"tckr = {str(current_list)}\n"
+            result_lists.append(list_str)
+        # Update output box with results
+        output_box.delete("1.0", tk.END)
+        output_box.insert("1.0", ''.join(result_lists))
+    # Third push - clear everything
+    else:
+        output_box.delete("1.0", tk.END)
+    output_box.config(state='disabled')
+    
+#Copy (Function)
+def copy_to_clipboard():
+    # Get Text from Output Box 
+    output_box.config(state='normal')
+    text_to_copy = output_box.get("1.0", "end-1c")
+    output_box.config(state='disabled')
+    # Clear and Update Clipboard
+    master.clipboard_clear()
+    master.clipboard_append(text_to_copy)
+    master.update()
+
+#Convert (Button)
+btn_convert = Button(mstr_grid, font=('Helvetica', 9), text="㊁")
+btn_convert.grid(row=3, column=0, columnspan=1, rowspan = 2, sticky = 'news')
+def btn_convert_handler(event):
+       global convert_press_start, convert_long_press_timer
+       convert_press_start = time.time() * 1000  # Convert to milliseconds
+       # Start timer for long press
+       convert_long_press_timer = master.after(500, handle_convert_long_press)
+def btn_convert_release(event):
+       global convert_press_start, convert_long_press_timer
+       if convert_long_press_timer:
+             master.after_cancel(convert_long_press_timer)
+       # If release happens before threshold, treat as normal click
+       if convert_press_start and (time.time() * 1000 - convert_press_start < 500):
+            convert_text()
+       convert_press_start = None
+       convert_long_press_timer = None
+def handle_convert_long_press():
+       global convert_long_press_timer
+       displayed_tickers = get_displayed_tickers()
+       if displayed_tickers:
+            # Just put the tickers with spaces between them
+            new_text = ' '.join(displayed_tickers)
+           # input_box.delete("1.0", tk.END)
+            input_box.insert(tk.END, new_text)
+       convert_long_press_timer = None
+# Initialize global variables for long press handling
+convert_press_start = None
+convert_long_press_timer = None
+#Updated Button Bindings
+btn_convert.bind("<ButtonPress-1>", btn_convert_handler)
+btn_convert.bind("<ButtonRelease-1>", btn_convert_release)
+
+#Keyboard Popup (Button)
+btn_keyboard = Button(mstr_grid, font=('Helvetica', 7), text="⧇⧇⧇⧇\n⧇⧇⧇⧇⧇")
+btn_keyboard.grid(row=3, column=1, columnspan=3, rowspan = 2, sticky ='news')
+def btn_keyboard_handler(event): keyboard.toggle_keyboard()
+btn_keyboard.bind("<Button-1>", btn_keyboard_handler)
+
+#Copy (Button)
+btn_copy = Button(mstr_grid, font=('Helvetica', 10), text="❐")
+btn_copy.grid(row=3, column=4, columnspan=1, rowspan = 2, sticky ='news')
+def btn_copy_handler(event): copy_to_clipboard()
+btn_copy.bind("<Button-1>", btn_copy_handler)
+
+# Ticker Table Selection (Static Label)
+lbl_tickerlist = Label(mstr_grid, text="Select Table:        ", font=('Helvetica', 8, 'bold'), anchor='center')
+lbl_tickerlist.grid(row=0, column=6,  columnspan = 3, sticky='news', padx=5, pady=(10,0))
+#Ticker Table  Selection (Dropdown Box))
+tckr_select = StringVar()
+tickerlist_ddbox = ttk.Combobox(mstr_grid, width=11, textvariable=tckr_select, state="readonly", justify = 'center')  
+tickerlist_ddbox['values'] = ticker_lists
+tickerlist_ddbox.grid(row=1, column=6, columnspan=2, rowspan = 2, sticky='ns', padx=5, pady=(0,10)); tickerlist_ddbox.current(0) 
+
+
+# Modified get_market_indicators function with caching
+_market_cache = TickerDataCache(cache_duration=500)
+
+#Global Classed RSI Calculation
+def calculate_rsi(prices, is_crypto):
+            if is_crypto: period = 19
+            else: period = 14
+            pricesnp = np.array(prices)
+            deltas = np.diff(pricesnp)
+            gains = np.where(deltas > 0, deltas, 0)
+            losses = np.where(deltas < 0, -deltas, 0)
+            o_av_gain = np.mean(gains[:period])
+            o_av_loss = np.mean(losses[:period])
+            gains_series = np.zeros_like(prices)
+            losses_series = np.zeros_like(prices)
+            gains_series[period] = o_av_gain
+            losses_series[period] = o_av_loss
+            for i in range(period + 1, len(prices)):
+                  gains_series[i] = (gains_series[i-1] * (period-1) + gains[i-1]) / period
+                  losses_series[i] = (losses_series[i-1] * (period-1) + losses[i-1]) / period
+            rs = gains_series / (losses_series + 1e-10)
+            rsi = 100 - (100 / (1 + rs))
+            return rsi
+
+#Global Classed Aroon Calculation
+def calculate_aroon(hist_data):
+                 aroon_periods = [5, 6, 6, 7,  8, 9]
+                 aroon_oscillators = [0]*6
+                 for j in range(6):      
+                           aroon_period = aroon_periods[j]
+                           opens = hist_data['Open']
+                           closes = hist_data['Close']
+                           mids = (3*opens+4*closes)/7
+                           highs = hist_data['High']
+                           lows = hist_data['Low']
+                           geohighs =(highs*mids)**(1/2)
+                           geolows = lows + (mids - (mids*lows)**(1/2))
+                           high_series = geohighs.tail(aroon_period)
+                           low_series = geolows.tail(aroon_period)
+                           periods_since_high = aroon_period - high_series.values.argmax() - 1
+                           periods_since_low = aroon_period - low_series.values.argmin() - 1
+                           aroon_up = ((aroon_period - periods_since_high) / aroon_period)*100
+                           aroon_down = ((aroon_period - periods_since_low) / aroon_period)*100
+                           aroon_oscillators[j] = (aroon_up - aroon_down)
+                 aroon = mean(aroon_oscillators)
+                 return aroon
+
+#MARKET CONDITIONS TABLE (data)
+def get_market_indicators(tickers=['SPY', 'QQQ', 'DIA', 'BTC-USD', 'ETH-USD', 'SVIX']):
+    results = {}
+    mrsis = [0]*2
+    for ticker in tickers:
+        try:
+            is_crypto = '-USD' in ticker
+            # Check cache first
+            cached_data = _market_cache.get(ticker, '3mo')
+            if cached_data is not None: hist = cached_data
+            else:
+                stock = yf.Ticker(ticker)
+                hist = stock.history(period="3mo")
+                _market_cache.set(ticker, '3mo', hist)
+            if hist.empty: continue
+            display_ticker = ticker.replace('-USD', '*')
+            if is_crypto:  # Cryptos
+                tailprd = 24  # 3.4weeks
+            else:  # Stocks
+                tailprd = 17  
+            opens = hist['Open']
+            closes = hist['Close']
+            mids = (3*opens+4*closes)/7
+            highs = hist['High']
+            lows = hist['Low']
+            geohighs =(highs*mids)**(1/2)
+            geolows = lows + (mids - (mids*lows)**(1/2))
+            avgPrice = (3*opens + 7*(geolows+geohighs)*(1/2) + 14*closes)*(1/24)
+            aroon = calculate_aroon(hist)
+            # Initialize odds with a default value
+            odds = 'ntrl'  # Default to neutral if calculations fail
+            # Calculate daily returns and movement days
+            daily_returns = avgPrice.tail(tailprd).pct_change()
+            if not daily_returns.empty:
+                up_days = daily_returns[daily_returns > 0.0066].count()
+                up_perc = round(up_days / len(daily_returns) * 100, 1)
+                down_days = daily_returns[daily_returns < -0.0066].count()
+                dn_perc = round(down_days / len(daily_returns) * 100, 1)
+                neutral_days = daily_returns.where((daily_returns <= 0.0066) & (daily_returns >= -0.0066)).count()
+                nt_perc = round(neutral_days / len(daily_returns) * 100, 1)
+                # Determine odds based on percentages
+                if up_perc >= 50: odds = '   up '
+                elif dn_perc >= 50: odds = '   dn '
+                elif nt_perc >= 50: odds = '  ntrl '
+                elif up_perc > dn_perc: odds = 'up-ntrl'
+                elif dn_perc > up_perc: odds = 'ntrl-dn'
+            try: # Calculate RSI with error handling
+                last_rsi =  (calculate_rsi(avgPrice, is_crypto)[-1])/100
+                if ticker == 'SPY': mrsis[0] = last_rsi
+                elif ticker == 'BTC-USD': mrsis[1] = last_rsi
+            except Exception as e:
+                print(f"RSI calculation failed for {ticker}: {e}")
+                last_rsi = 0.5  # Default to neutral RSI if calculation fails
+            # Determine background color and market gravity
+            if (last_rsi > 0.68) or (odds == ' dn ') or (aroon < -66) or (aroon > 75):
+                bg_color = '#FF3333'; mktgrav = '(Crãsh)'
+            elif (last_rsi > 0.56) or (odds == 'ntrl-dn') or (aroon <-44) or (aroon > 62):
+                bg_color = 'orange'; mktgrav = '(  Fäll  )'
+            elif last_rsi > 0.37 or odds == 'ntrl':
+                bg_color = 'lightblue'; mktgrav = '(Hõvɛr)'
+            elif last_rsi > 0.27 or odds == 'up-ntrl': 
+                bg_color = 'lightgreen'; mktgrav = '( ŔÎŜÈ)'
+            else: bg_color = 'green'; mktgrav = '(ƁŁÁ$Ŧ)'
+            results[display_ticker] = {
+                'Årn': f'{aroon:.0f}',
+                'Up': f'{up_perc:.0f}%',
+                'Ntr': f'{nt_perc:.0f}%',
+                'Dwn': f'{dn_perc:.0f}%',
+                'Chance': odds,
+                'RSI_Gravity': f'   {format_decimal(last_rsi)}      {mktgrav}',
+                'BG_Color': bg_color,
+                'mrsis': mrsis}
+        except Exception as e:
+            print(f"Error processing {ticker}: {e}")
+            # Add a default entry for failed tickers
+            results[ticker.replace('-USD', '*')] = {
+                'Årn': '0',
+                'Up': '0%',
+                'Ntr': '0%',
+                'Dwn': '0%',
+                'Chance': 'ntrl',
+                'RSI_Gravity': '0.50 (Error)',
+                'BG_Color': 'lightgray',
+                'mrsis': mrsis}
+    return results
+
+
+#MONTE CARLO MULTITICKER (CLASS)
+class MonteCarloMultiTicker:
+    _data_cache = TickerDataCache()
+    _realtime_cache = {}
+    _realtime_cache_time = {}
+    #initialize class function
+    def __init__(self, tickers, period='3MO', slctindx = "---"):
+        self.tickers = tickers; self.period = period; self.slctindx = slctindx
+        self.period_map = {'1MO': '1mo', '3MO': '3mo', '6MO': '6mo', '1YR': '1y', '5YR': '5y'}
+        market_data = get_market_indicators()
+        self.mrsis = next(iter(market_data.values()))['mrsis']
+
+    #REAL TIME PRICE (data)
+    def get_realtime_price(self, ticker):
+           """Get real-time price with 60-second cache"""
+           current_time = datetime.now()
+           # Check if cached price exists and is fresh (less than 210 seconds old)
+           if ticker in self._realtime_cache_time:
+                time_diff = (current_time - self._realtime_cache_time[ticker]).total_seconds()
+                if time_diff < 210:
+                    return self._realtime_cache.get(ticker)
+           try: # If no cache or cache is stale, fetch new data
+                 stock = yf.Ticker(ticker)
+                 price = stock.info.get('regularMarketPrice')
+                 if price:
+                      self._realtime_cache[ticker] = price
+                      self._realtime_cache_time[ticker] = current_time
+                      return price
+           except Exception as e:
+                   print(f"Error fetching real-time price for {ticker}: {e}")
+          # Return cached price if fetch fails, or None if no cache exists
+           return self._realtime_cache.get(ticker)
+
+   #ASSET TABLE (data)
+    def fetch_stock_data(self, ticker):
+           try:# Check cache first
+                 cached_data = self._data_cache.get(ticker, self.period_map[self.period])
+                 if cached_data is not None:
+                      return cached_data
+                 # If not in cache, fetch from yfinance
+                 stock = yf.Ticker(ticker)
+                 hist_data = stock.history(period=self.period_map[self.period])
+                 if not hist_data.empty:
+                       # Store in cache
+                       self._data_cache.set(ticker, self.period_map[self.period], hist_data)
+                       return hist_data
+                 return None
+           except Exception as e:
+                   print(f"Error fetching data for {ticker}: {e}")
+                   return None
+            
+            
+   #class methods
+    @classmethod
+    def clear_cache(cls):
+        cls._data_cache.clear()
+        cls._realtime_cache.clear()
+        cls._realtime_cache_time.clear()
+    @classmethod
+    def get_cache_stats(cls): return cls._data_cache.get_cache_stats()
+    
+    
+    
+    #All Calculations (Function)
+    def analyze_single_ticker(self, ticker, hist_data):
+           try:
+                 if hist_data is None or len(hist_data) == 0: return None
+                 opens = hist_data['Open']
+                 closes = hist_data['Close']
+                 mids = (3*opens+4*closes)/7
+                 highs = hist_data['High']
+                 lows = hist_data['Low']
+                 geohighs =(highs*mids)**(1/2)
+                 geolows = lows + (mids - (mids*lows)**(1/2))
+                 avgPrice = (3*opens + 7*(geolows+geohighs)*(1/2) + 14*closes)*(1/24)
+                 def safe_float(value):
+                     try:
+                              return float(value)
+                     except (ValueError, TypeError):
+                              return 0.0
+                 # Get current price once
+                 current_price = self.get_realtime_price(ticker)
+                 if current_price is None:  current_price = avgPrice.iloc[-1]
+                 # Determine if crypto
+                 is_crypto = '-USD' in ticker
+                 # Calculate all metrics
+                 results = {}
+                # 1. Calculate means (used multiple times)
+                 if is_crypto: #convert the calendar periods to crypto periods
+                      wndwA = [31, 24, 17, 10, 3] #c.meansA
+                      wndwB = [32, 25, 18, 11, 4] #c.meansB
+                 else:
+                    wndwA = [22, 17, 12, 7, 2] #s.meansA
+                    wndwB = [23, 18, 13, 8, 3] #s.meansB
+                # 2. Calculate all percentages from mean
+                 MnValA = []
+                 PercMnValA = []
+                 for i in range(5): 
+                      mn_a = avgPrice.tail(wndwA[i]).mean()
+                      mn_b = avgPrice.tail(wndwB[i]).mean()
+                      mVal = (mn_a*mn_b)**(1/2)
+                      MnValA.append(mVal)
+                      PercMnValA.append((current_price/mVal)*100-100)
+                 results['perc_hWk_mean'] = PercMnValA[-1]
+                 results['perc_1Mo_mean'] = PercMnValA[0]
+                 # 3. Calculate Aroon Oscillator
+                 aroon = calculate_aroon(hist_data)
+                 results['aroon'] = aroon
+                 # 4. Calculate RSI 
+                 rsio = calculate_rsi(avgPrice, is_crypto)[-1]
+                 rsi = rsio/100
+                 results['rsi'] = rsi
+                # 5.  Calculate Bollinger Band Envelope Position
+                 window = 14
+                 multiplier = 2.0
+                 envdays = 4
+                 dBollinger = [0]*envdays
+                 for j in range(envdays):
+                      dataJ = avgPrice.iloc[:-(j+1)]
+                      if j == 0:  Jcurrent = current_price
+                      else: Jcurrent = dataJ.iloc[-1]
+                      rolling_mean = safe_float(dataJ.tail(window).mean())
+                      rolling_std = safe_float(dataJ.tail(window).std())
+                      Lower_Band = rolling_mean - (multiplier * rolling_std)
+                      if np.isnan(Lower_Band): Lower_Band = rolling_mean*0.90
+                      elif Lower_Band <= 0: Lower_Band = 0
+                      else: Lower_Band = Lower_Band
+                      Upper_Band = rolling_mean + (multiplier * rolling_std)
+                      Upper_Band = rolling_mean*1.10 if np.isnan(Upper_Band) else Upper_Band
+                      dBollinger[envdays-(j+1)] = 5*(Jcurrent - Lower_Band) / (Upper_Band - Lower_Band)
+                 mnEnv = math.ceil(mean(dBollinger[:-2]))
+                 if mnEnv <= 0: mnEnv = mnEnv - 1
+                 results['mnEnv'] = mnEnv
+                 ENV = math.ceil(dBollinger[-1])
+                 if ENV <= 0: ENV = ENV - 1
+                  # 6. Monte Carlo Simulations - 
+                 returns = avgPrice.pct_change().dropna()
+                 histperiod = 52
+                 historical_prices = avgPrice[-histperiod:].values
+                 num_simulations = 1777
+                 returns_mean = returns.mean()
+                 returns_std = returns.std()
+                 sim_days = 18
+                 simulation_params = [(sim_days, returns_mean, returns_std)]
+                 future_prices = []
+                 for days, mean_return, std_dev in simulation_params:
+                       simulations = np.zeros((num_simulations, days + 1))
+                       rsi_paths = np.zeros((num_simulations, days + 1))
+                       # Initialize with current price and RSI
+                       simulations[:, 0] = current_price
+                       initial_rsi = rsio
+                       rsi_paths[:, 0] = initial_rsi
+                       for sim in range(num_simulations):
+                             price_history = np.copy(historical_prices)
+                             for day in range(1, days + 1): 
+                                   current_rsi = rsi_paths[sim, day-1]
+                                   # RSI adjusted returns
+                                   rsi_return_adjustment = 0.20 * (50 - current_rsi) / 100
+                                   rsi_volatility = 1.0 + 0.5 * (current_rsi - 50) / 100
+                                   daily_return = np.random.normal(
+                                                                 mean_return + rsi_return_adjustment,
+                                                                 std_dev * rsi_volatility)
+                                   # Update price and price history
+                                   new_price = simulations[sim, day-1] * (1 + daily_return)
+                                   simulations[sim, day] = new_price
+                                   price_history = np.append(price_history[1:], new_price)
+                                  # Calculate new RSI based on updated price history
+                                   rsi_paths[sim, day] = calculate_rsi(price_history, is_crypto)[-1]
+                       midperc = np.percentile(simulations, 50, axis=0)
+                       midpercb = np.percentile(simulations - current_price, 50, axis=0)
+                       indices = np.arange(len(midpercb))
+                       indices = np.where(indices == 0, 1, indices)
+                       mrates = midpercb / indices
+                       max_index = np.argmax(mrates)
+                       max_future = midperc[max_index]
+                       future_prices.append(max_future)
+                       cfuture = np.exp(np.mean(np.log(midperc)))
+                       future_prices.append(cfuture)
+                       future_prices.append(max_index)   
+                 mFut = future_prices[0]
+                 mfutday = future_prices[2]
+                 winpo_m = mFut / current_price
+                 max_winporate = 100*(winpo_m-1)/(mfutday+1)
+                 cFut = future_prices[1]
+                 winpo_c = cFut / current_price
+                 # Get current wp_mode and corresponding weight
+                 current_mode = keyboard.wp_mode.get()
+                 wpQ = keyboard.wp_weights[current_mode]
+                 wpwt = [wpQ, 1]
+                 winpo_wt = (wpwt[0]*winpo_m + wpwt[1]*winpo_c)/sum(wpwt)
+                 pres0 = f"${current_price}"; pres00 = format_value(pres0)
+                 fut1 = f"${mFut}"; fut11 = format_value(fut1)
+                 fut2 = f"${cFut}"; fut22 = format_value(fut2)
+                 if round(ENV) > round(mnEnv): strEnv = '￪ƒivs'
+                 elif round(ENV) ==  round(mnEnv): strEnv = '⇶ƒivs'
+                 else: strEnv = '￬ƒivs'
+                 display_ticker = ticker.replace('-USD', '*').replace('5692','').replace('11841','').replace('24478','').replace('7083','').replace('PENGU34466', 'PENG').replace('POPCAT28782','PCAT')
+                 presfuture = f"{display_ticker}  ({pres00}ɓ |{max_winporate:.1f}%|{mfutday}d {winpo_m:.1f}x~{fut11}ɓ|{winpo_c:.1f}x~{fut22}ɓ)  |{mnEnv:.0f}:{ENV:.0f}{strEnv}| {aroon:.0f} |{format_decimal(rsi)}"
+                 results['winpo_c'] = winpo_c
+                 results['winpo_m'] = winpo_m
+                 results['mfutday'] = mfutday
+                 results['mean_winpo'] = winpo_wt
+                 results['winrate'] = max_winporate
+                 if ENV <= 0: ENV = ENV +1
+                 if mnEnv <= 0: mnEnv =mnEnv + 1
+                 results['ENV'] =  (ENV + max_winporate - mnEnv)*(-aroon/rsi)*max_winporate
+                 results['fut1'] = mFut
+                 results['fut2'] = cFut
+                 results['mean_future'] = winpo_wt*(current_price)
+                 results['pres'] = current_price
+                 results['presfut'] = presfuture
+                 return results
+           except Exception as e:
+                   print(f"Error processing {ticker}: {e}")
+                   return None
+                   
+
+
+    #ANALYZE ASSETS (format)
+    def analyze_tickers(self):
+           selected_index = tickerlist_ddbox.current()
+           results = []
+           batch_size = 6
+           delay_seconds = 0.6
+           ticker_batches = [self.tickers[i:i + batch_size] for i in range(0, len(self.tickers), batch_size)]
+           for batch_num, batch in enumerate(ticker_batches):
+                 batch_results = []
+                 start_index = batch_num * batch_size
+                 for i, ticker in enumerate(batch):
+                       current_index = start_index + i + 1
+                       if ticker == '---': continue
+                       try:# Get historical data
+                             hist_data = self.fetch_stock_data(ticker)
+                             if hist_data is None: continue
+                            # Get all metrics in one calculation
+                             metrics = self.analyze_single_ticker(ticker, hist_data)
+                             if metrics is None: continue
+                             display_ticker = ticker
+                              # Add to results with formatted strings
+                             batch_results.append({
+                                      'INDEX': current_index,
+                                      'Assets:': display_ticker,
+                                      'WinPo': round(metrics['mean_winpo'], 3),  # Keep numeric for sorting
+                                      'WinPo_Str': f"{metrics['mean_winpo']:.2f}x",  # Format for display
+                                      'WinRate':  f"{metrics['winrate']:.2f}",
+                                      'Aroon': f"{metrics['aroon']:.0f}",
+                                      'RSI': f"{metrics['rsi']:.2f}",
+                                      'ENV': f"{metrics['ENV']:.2f}",
+                                      'hWk': f"{metrics['perc_hWk_mean']:.1f}",
+                                      'Current': f"${metrics['pres']}",
+                                      'FutDay': f"{metrics['mfutday']}",
+                                      'Future': f"{metrics['mean_future']}",
+                                      '    [Asset     (Prsnt | Ṁ | tm mWP~mF | cWP~cF)    |   ĒNV   |  Årn  | RSI]': f"{metrics['presfut']}"})
+                       except Exception as e:
+                               print(f"Error processing {ticker}: {e}")
+                 results.extend(batch_results)
+                 if batch != ticker_batches[-1] and self.slctindx != selected_index:
+                      time.sleep(delay_seconds)
+           # Sort results
+           sorted_results = sorted(results, key=lambda x: (-x['WinPo'], x['RSI']), reverse=False)
+           # Convert to display format
+           display_results = [{
+                   'INDEX': result['INDEX'],
+                   'Assets:': result['Assets:'],
+                   'Aroon': result['Aroon'],
+                   'WinPo': result['WinPo_Str'],
+                   'WinRate': result['WinRate'],
+                   'RSI': result['RSI'],
+                   'ENV': result['ENV'],
+                   'hWk': result['hWk'],
+                   'Current': result['Current'],
+                   'FutDay': result['FutDay'],
+                   'Future': result['Future'],
+                   '    [Asset     (Prsnt | Ṁ | tm mWP~mF | cWP~cF)    |   ĒNV   |  Årn  | RSI]': result['    [Asset     (Prsnt | Ṁ | tm mWP~mF | cWP~cF)    |   ĒNV   |  Årn  | RSI]']} for result in sorted_results]
+           self.slctindx = selected_index
+           return display_results
+    
+
+
+#METRIC MONEY FORMAT
+def format_value(value_str):
+        """Format value with metric prefixes"""
+        try: # Extract numerical value from string format
+               value = float(value_str.replace('$', ''))
+        except (ValueError, AttributeError):
+                 return value_str
+       # Define metric prefixes
+        prefixes = [
+                (1e12, "T"), (1e9, "G"), (1e6, "M"), (1e3, "K"),
+                (1e0, ""), (1e-2, "c"), (1e-3, "m"),(1e-6, "μ"), (1e-9, "n")]
+        # Find appropriate prefix
+        for scale, prefix in prefixes:
+               if abs(value) >= scale:
+                     scaled_value = value / scale
+                     # Format to 3 significant figures
+                     if scaled_value >= 100:
+                            formatted = f"{scaled_value:.0f}"
+                     elif scaled_value >= 10:
+                            formatted = f"{scaled_value:.1f}"
+                     else:
+                             formatted = f"{scaled_value:.2f}"
+                     # Only add prefix if it's not empty
+                     prefix_str = f"{prefix}" if prefix else ""
+                     return f"{formatted}{prefix_str}"
+        return "(0)ɓ"
+def format_decimal(num):
+    num_str = f"{num:.2f}"
+    return num_str.replace("0.", ".")
+
+#ASSET TABLE DISPLAY
+def display_ticker_tables(event):
+        selected_index = tickerlist_ddbox.current()
+        selected_tickers = tckr_lists[selected_index]
+        # Clear existing labels with consistent background
+        for label in ticker_row_labels:
+              label.config(text='---', bg='lightgray')
+       # Update Market Indicators Table
+        market_indicators = get_market_indicators()
+        for i, (ticker, data) in enumerate(market_indicators.items()):
+              if i < len(indice_row_labels):
+                  indice_row_labels[i].config(
+                         text=f" {ticker}:\t   {data['Up']}\t  {data['Ntr']}\t{data['Dwn']}\t{data['Chance']}\t   {data['Årn']}\t{data['RSI_Gravity']}",
+                         bg=data['BG_Color'])
+       # Update static header with custom spacing
+        header_parts = []
+        if VISIBLE_COLUMNS['INDEX']:
+              header_parts.append(f"{'INDEX':<{COLUMN_WIDTHS['INDEX']}}")
+        if VISIBLE_COLUMNS['Assets:']:
+              header_parts.append(f"{'Assets:':<{COLUMN_WIDTHS['Assets:']}}")
+        if VISIBLE_COLUMNS['Aroon']:
+              header_parts.append(f"{'Aroon':<{COLUMN_WIDTHS['Aroon']}}")
+        if VISIBLE_COLUMNS['WinPo']:
+              header_parts.append(f"{'WinPo':<{COLUMN_WIDTHS['WinPo']}}")
+        if VISIBLE_COLUMNS['WinRate']:
+              header_parts.append(f"{'WinRate}':<{COLUMN_WIDTHS['WinRate']}}")
+        if VISIBLE_COLUMNS['RSI']:
+              header_parts.append(f"{'RSI':<{COLUMN_WIDTHS['RSI']}}")
+        if VISIBLE_COLUMNS['ENV']:
+              header_parts.append(f"{'ENV':<{COLUMN_WIDTHS['ENV']}}")
+        if VISIBLE_COLUMNS['hWk']:
+              header_parts.append(f"{'hWk':<{COLUMN_WIDTHS['hWk']}}")
+        if VISIBLE_COLUMNS['Current']:
+              header_parts.append(f"{'Present':<{COLUMN_WIDTHS['Current']}}")
+        if VISIBLE_COLUMNS['FutDay']:
+              header_parts.append(f"{'FutDay':<{COLUMN_WIDTHS['FutDay']}}")
+        if VISIBLE_COLUMNS['Future']:
+              header_parts.append(f"{'Future':<{COLUMN_WIDTHS['Future']}}")
+        if VISIBLE_COLUMNS['    [Asset     (Prsnt | Ṁ | tm mWP~mF | cWP~cF)    |   ĒNV   |  Årn  | RSI]']:
+              header_parts.append(f"{'    [Asset     (Prsnt | Ṁ | tm mWP~mF | cWP~cF)    |   ĒNV   |  Årn  | RSI]':<{COLUMN_WIDTHS['    [Asset     (Prsnt | Ṁ | tm mWP~mF | cWP~cF)    |   ĒNV   |  Årn  | RSI]']}}")
+        header_text = "Asset Forecast Table:    \n" + ''.join(header_parts)
+        lbl_TickerTable.config(text=header_text)
+        # Analyze Tickers
+        mc_analyzer = MonteCarloMultiTicker(selected_tickers)
+        ticker_results = mc_analyzer.analyze_tickers()
+        selected_index = tickerlist_ddbox.current()
+         # Get current wp_mode and corresponding weight
+        current_mode2 = keyboard.srtUpDn_mode.get()
+        srtL = keyboard.srtUpDn_weights[current_mode2]
+        #Filter Out Weighted Stock WinPos less than 1.3x and Weighted  Others less than 1.0
+        ticker_results = [result for result in ticker_results 
+                 if (float(result['WinPo'].replace('x', '')) >= 0.0) ]
+        # Sort functions for dropdown
+        if srtL == 0:
+           sort_functions = {
+                    'WinPo': lambda x: (-float(x['WinPo'].replace('x', '')), float(x['RSI'])),
+                    'WinRate': lambda x: -float(x['WinRate']),
+                    'Aroon': lambda x: -float(x['Aroon']),
+                    'RSI': lambda x: float(x['RSI']),
+                    'Envelope': lambda x: -(float(x['ENV'])),
+                    'hWk': lambda x: -(float(x['hWk'])),
+                    'ABC': lambda x: x['Assets:']}
+        elif srtL == 1:
+        	sort_functions = {
+                    'WinPo': lambda x: (float(x['WinPo'].replace('x', '')), float(x['RSI'])),
+                    'WinRate': lambda x: float(x['WinRate']),
+                    'Aroon': lambda x: float(x['Aroon']),
+                    'RSI': lambda x: -(float(x['RSI'])),
+                    'Envelope': lambda x: (float(x['ENV'])),
+                    'hWk': lambda x: (float(x['hWk'])),
+                    'ABC': lambda x: (x['Assets:'])}
+        # Get current sort mode from dropdown
+        current_sort = keyboard.sort_mode.get()
+        if selected_index == 0: ticker_results.sort(key =  lambda x: x['INDEX'])
+        else: ticker_results.sort(key=sort_functions[current_sort]) 
+        # Update Ticker Table with custom spacing
+        for i, result in enumerate(ticker_results):
+              if i < len(ticker_row_labels):
+                   # Format the current and future values before display
+                    present = float(result['Current'].replace('$',''))
+                    future = float(result['Future'].replace('$',''))
+                    result['Current'] = format_value(result['Current'])
+                    result['Future'] = format_value(result['Future'])
+                    # Build display parts based on visible columns
+                    display_parts = []
+                    if VISIBLE_COLUMNS['INDEX']:
+                         display_parts.append(f"{result['INDEX']:<{COLUMN_WIDTHS['INDEX']}}")
+                    if VISIBLE_COLUMNS['Assets:']:
+                         display_parts.append(f"{result['Assets:']:<{COLUMN_WIDTHS['Assets:']}}")
+                    if VISIBLE_COLUMNS['Aroon']:
+                         display_parts.append(f"{result['Aroon']:<{COLUMN_WIDTHS['Aroon']}}")
+                    if VISIBLE_COLUMNS['WinPo']:
+                         display_parts.append(f"{result['WinPo']:<{COLUMN_WIDTHS['WinPo']}}")
+                    if VISIBLE_COLUMNS['WinRate']:
+                         display_parts.append(f"{result['WinRate']:<{COLUMN_WIDTHS['WinRate']}}")
+                    if VISIBLE_COLUMNS['RSI']:
+                         display_parts.append(f"{result['RSI']:<{COLUMN_WIDTHS['RSI']}}")
+                    if VISIBLE_COLUMNS['ENV']:
+                         display_parts.append(f"{result['ENV']:<{COLUMN_WIDTHS['ENV']}}")
+                    if VISIBLE_COLUMNS['hWk']:
+                         display_parts.append(f"{result['hWk']:<{COLUMN_WIDTHS['hWk']}}")
+                    if VISIBLE_COLUMNS['Current']:
+                         display_parts.append(f"{result['Current']:<{COLUMN_WIDTHS['Current']}}")
+                    if VISIBLE_COLUMNS['FutDay']:
+                         display_parts.append(f"{result['FutDay']:<{COLUMN_WIDTHS['FutDay']}}")
+                    if VISIBLE_COLUMNS['Future']:
+                         display_parts.append(f"{result['Future']:<{COLUMN_WIDTHS['Future']}}")
+                    if VISIBLE_COLUMNS['    [Asset     (Prsnt | Ṁ | tm mWP~mF | cWP~cF)    |   ĒNV   |  Årn  | RSI]']:
+                         display_parts.append(f"{result['    [Asset     (Prsnt | Ṁ | tm mWP~mF | cWP~cF)    |   ĒNV   |  Årn  | RSI]']:<{COLUMN_WIDTHS['    [Asset     (Prsnt | Ṁ | tm mWP~mF | cWP~cF)    |   ĒNV   |  Årn  | RSI]']}}")
+                    ticker_line = ''.join(display_parts)
+                   # Determine background color based on conditions
+                    winpo = float(result['WinPo'].replace('x', ''))
+                    winrate = float(result['WinRate'])
+                    rsi = float(result['RSI'])
+                    aroon = float(result['Aroon'])
+                    indx = float(result['INDEX'])
+                    bg_color = 'lightgray'
+                    if (selected_index != 0) or (selected_index == 0 and indx !=8):
+                          if rsi > 0.62 or aroon < -80 or aroon > 70 or winrate < 0.43: bg_color = '#FF3333' # Crãsh
+                          elif present > future or rsi > 0.52 or aroon < -70 or aroon > 60 or winrate < 0.53: bg_color = '#FF9944' # Fäll
+                          elif rsi > 0.37: bg_color = 'lightblue' # Hõvɛr
+                          elif rsi > 0.27: bg_color = '#77FFCC' # ŔÎŜÈ
+                          elif rsi > 0.00:  bg_color = 'green' # ƁŁÁ$Ŧ
+                    elif selected_index == 0:
+                    	 if (present > future) or (rsi > 0.55) or (aroon < -48): bg_color = '#FF0000' #Crash
+                    	 elif present < future: bg_color = '#77FFCC' #Jump
+                    ticker_row_labels[i].config(text=ticker_line, bg=bg_color)
+              
+# View Forecast (Button)
+btn_dispTickerTables = Button(mstr_grid, text=" ◇   V I E W   ♡ \n ♧ FORECAST ♤", font=('Helvetica', 6), width = 6)
+btn_dispTickerTables.grid(row=3, column=6, rowspan=2, columnspan=2, sticky='ews')
+btn_dispTickerTables.bind("<Button-1>", display_ticker_tables)
+
+# Add cache cleanup function to run periodically
+def cleanup_caches():
+    MonteCarloMultiTicker.clear_cache()
+    _market_cache.clear()
+    master.after(300000, cleanup_caches)  # Run every 5 minutes
+# Add this line before master.mainloop()
+master.after(300000, cleanup_caches)
+
+update_mtable_clock()
+
+master.mainloop()
