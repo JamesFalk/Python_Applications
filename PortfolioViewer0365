@@ -1,0 +1,465 @@
+from tkinter import Tk, Frame, Label, ttk, Button, Entry, StringVar, Toplevel
+from datetime import datetime
+import matplotlib.dates as mdates
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import yfinance as yf
+import numpy as np
+from dataclasses import dataclass
+from typing import Dict, Optional
+from datetime import timedelta
+
+
+@dataclass
+class CachedData:
+    data: object  # Store the yfinance data
+    info: dict    # Store the ticker info
+    timestamp: datetime
+    period: str   # Store the period this data was fetched for
+class DataCache:
+    def __init__(self, cache_duration: timedelta = timedelta(minutes=15)):
+        self.cache: Dict[str, Dict[str, CachedData]] = {}  # ticker -> period -> CachedData
+        self.cache_duration = cache_duration
+    def get(self, ticker: str, period: str) -> Optional[CachedData]:
+        if ticker not in self.cache or period not in self.cache[ticker]:
+            return None
+        cached = self.cache[ticker][period]
+        if datetime.now() - cached.timestamp > self.cache_duration:
+            return None
+        return cached
+    def set(self, ticker: str, period: str, data: object, info: dict):
+        if ticker not in self.cache:
+            self.cache[ticker] = {}
+        self.cache[ticker][period] = CachedData(
+            data=data,
+            info=info,
+            timestamp=datetime.now(),
+            period=period)
+    def clear(self):
+        self.cache.clear()
+
+
+class PopupKeyboard:
+    def __init__(self, master, entries, togglelog=True):
+        self.master = master
+        self.entries = entries
+        self.current_entry_index = 0
+        self.togglelog = togglelog
+        self.keyboard_window = None
+        self.text_display = None
+        # Set initial colors and bind focus events for all entries
+        for entry in self.entries:
+            entry.configure(bg='white')  # Set default background
+            entry.bind('<FocusIn>', self.on_entry_focus)
+            entry.bind('<FocusOut>', self.on_entry_unfocus)
+    def on_entry_focus(self, event):
+        event.widget.configure(bg='#e6f3ff')  # Light blue color
+        self.current_entry_index = self.entries.index(event.widget)
+    def on_entry_unfocus(self, event):
+        event.widget.configure(bg='white')
+    def fill_entries_from_textbox(self):
+        if not self.text_display:
+            return
+        # Get text and split by spaces
+        text = self.text_display.get().strip().upper()
+        tickers = text.split()
+        # Clear all entries first (except VIX)
+        for i, entry in enumerate(self.entries):
+            if i != 7:  # Skip VIX entry
+                entry.delete(0, 'end')
+        # Fill entries with tickers (up to 7, skipping VIX position)
+        ticker_index = 0
+        entry_index = 0
+        while ticker_index < len(tickers) and entry_index < len(self.entries):
+            if entry_index != 7:  # Skip VIX position
+                self.entries[entry_index].delete(0, 'end')
+                self.entries[entry_index].insert(0, tickers[ticker_index])
+                ticker_index += 1
+            entry_index += 1
+        # Clear the textbox after filling
+        self.text_display.delete(0, 'end')
+    def toggle_keyboard(self):
+        if self.keyboard_window is None or not self.keyboard_window.winfo_exists():
+            self.show_keyboard()
+        else:
+            self.hide_keyboard()
+    def show_keyboard(self):
+        # Create new window
+        self.keyboard_window = Toplevel(self.master)
+        self.keyboard_window.title("Ticker Keyboard")
+        self.keyboard_window.resizable(0, 0)
+        # Position the keyboard window
+        x = self.master.winfo_x() - 43
+        y = self.master.winfo_y() + 750
+        self.keyboard_window.geometry(f"+{x}+{y}")
+        # Define the keyboard layout with row lengths
+        keyboard_layout = [
+            ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'],           
+            ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'],    
+            ['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L','^'],              
+            ['Z', 'X', 'C', 'V', 'B', 'N', 'M', '-USD'],            
+            ['《','<', 'CLEAR', 'FILL', '》']] 
+        # Maximum row length (10 keys)
+        max_cols = 10
+        # Style configuration
+        button_style = {
+            'width': 1,
+            'height': 1,
+            'font': ('Helvetica', 3),
+            'relief': 'raised',
+            'bg': '#f0f0f0',
+            'activebackground': '#e0e0e0'}
+        # Create keyboard buttons
+        for row_idx, row in enumerate(keyboard_layout):
+            # Calculate padding for this row
+            row_length = len(row)
+            x_padding = (max_cols - row_length) // 2
+            for col_idx, key in enumerate(row):
+                # Adjust button width for special keys
+                local_style = button_style.copy()
+                if key in ['CLEAR', 'FILL']:
+                    local_style['width'] = 3
+                elif key in ['-USD']:
+                    local_style['width'] = 1
+                btn = Button(self.keyboard_window, 
+                           text=key,
+                           command=lambda k=key: self.handle_key_press(k),
+                           **local_style)
+                # Position button with calculated padding
+                btn.grid(row=row_idx, 
+                        column=col_idx + x_padding, 
+                        padx=2, 
+                        pady=2)
+        # Add text display at the bottom with placeholder text
+        self.text_display = Entry(self.keyboard_window, 
+                                justify='center',
+                                font=('Helvetica', 6),
+                                bg='white',
+                                relief='sunken')
+        self.text_display.grid(row=len(keyboard_layout), 
+                             column=0, 
+                             columnspan=max_cols, 
+                             padx=4, 
+                             pady=4,
+                             sticky='ew')
+        self.text_display.insert(0, "Paste space-separated tickers here...")
+        self.text_display.bind('<FocusIn>', self.on_textbox_focus)
+    def on_textbox_focus(self, event):
+        # Clear placeholder text when textbox gets focus
+        if self.text_display.get() == "Paste space-separated tickers here...":
+            self.text_display.delete(0, 'end')
+    
+    def hide_keyboard(self):
+        if self.keyboard_window:
+            self.keyboard_window.destroy()
+            self.keyboard_window = None
+            self.text_display = None
+    
+    def handle_key_press(self, key):
+        if not self.entries:
+            return
+            
+        if key == 'FILL':
+            self.fill_entries_from_textbox()
+            return
+            
+        current_entry = self.entries[self.current_entry_index]
+        current_text = current_entry.get()
+        
+        if key == 'CLEAR':
+            current_entry.delete(0, 'end')
+        elif key == '<':
+            current_entry.delete(len(current_text)-1, 'end')
+            if current_text.endswith('-USD'):
+                current_entry.delete(0, 'end')
+                current_entry.insert(0, current_text[:-4])
+        elif key == '《':  # Previous field
+            current_entry.configure(bg='white')  # Reset current entry background
+            self.current_entry_index = (self.current_entry_index - 1) % len(self.entries)
+            self.entries[self.current_entry_index].focus()
+            self.entries[self.current_entry_index].configure(bg='#e6f3ff')  # Set new active entry background
+        elif key == '》':  # Next field
+            current_entry.configure(bg='white')  # Reset current entry background
+            self.current_entry_index = (self.current_entry_index + 1) % len(self.entries)
+            self.entries[self.current_entry_index].focus()
+            self.entries[self.current_entry_index].configure(bg='#e6f3ff')  # Set new active entry background
+        else:
+            current_pos = current_entry.index('insert')
+            current_entry.insert(current_pos, key)
+            current_entry.focus()
+
+# Creating the Main Window
+master = Tk()
+master.title("PortfolioViewer0365")
+master.geometry("1050x1800+200+100")
+
+# Initialize the data cache
+data_cache = DataCache()
+
+# Master Window Framegrid (mstr_grid)
+mstr_grid = Frame(master, width=1050, height=1800)
+mstr_grid.grid()
+for i in range(50):
+    mstr_grid.grid_rowconfigure(i, weight=1, minsize=30)
+for i in range(16):
+    mstr_grid.grid_columnconfigure(i, weight=1, minsize=60)
+mstr_grid.grid_propagate(False)
+
+# Primary Plot Framegrid (box_grid1)
+box_grid1 = Frame(mstr_grid, width=750, height=1000)
+box_grid1.grid_propagate(False)
+box_grid1.grid(row=0, column=0, columnspan=12, rowspan=11, sticky='news')
+
+# Secondary Plot Framegrid (box_grid2)
+box_grid2 = Frame(mstr_grid, width=1400, height=2000)
+box_grid2.grid(row=16, column=0, columnspan=16, rowspan=25, sticky='news')
+box_grid2.grid_propagate(False)
+
+# TimePeriod_Label
+lbl_time_prd = Label(mstr_grid, text="Time Period")
+lbl_time_prd.grid(row=0, column=13, columnspan=3, sticky='news')
+# TimePeriod_Selector
+prd_select = StringVar()
+period_ddbox = ttk.Combobox(mstr_grid, width=15, textvariable=prd_select, state='readonly')
+period_ddbox['values'] = ('1 MO', '3 MO', '6 MO')
+period_ddbox.grid(row=1, column=13, columnspan=3, sticky='nw')
+period_ddbox.current(0)  # Set default to 1MO
+
+# Portfolio_Label
+lbl_portfolio = Label(mstr_grid, text="Portfolio")
+lbl_portfolio.grid(row=2, column=13, columnspan=3, sticky='s')
+
+# Function to auto-capitalize text in Entry widgets
+def auto_capitalize(event):
+    widget = event.widget
+    text = widget.get().upper()
+    widget.delete(0, 'end')
+    widget.insert(0, text)
+
+# Portfolio_InputBoxes with auto-capitalization
+stock_entries = []
+for f in range(3, 11):
+    entry = Entry(mstr_grid, justify='center')
+    entry.grid(row=f, column=13, columnspan=3, sticky='news')
+    # Bind the auto-capitalize function to key release event
+    entry.bind('<KeyRelease>', auto_capitalize)
+    stock_entries.append(entry)
+
+# Set ^VIX in the 8th entry (index 7)
+stock_entries[7].insert(0, '^VIX')
+
+def format_market_cap(value):
+    """
+    Format market cap to 3 significant figures with metric prefix.
+    Returns formatted string like '2.50 kilobucks', '35.9 megabucks', etc.
+    """
+    if value == 0:
+        return "N/A"
+    
+    # Define metric prefixes
+    prefixes = [
+        (1e12, "Tera"),
+        (1e9, "Giga"),
+        (1e6, "Mega"),
+        (1e3, "Kilo")
+    ]
+    
+    # Find appropriate prefix
+    for scale, prefix in prefixes:
+        if abs(value) >= scale:
+            scaled_value = value / scale
+            # Format to 3 significant figures
+            if scaled_value >= 100:
+                formatted = f"{scaled_value:.0f}"
+            elif scaled_value >= 10:
+                formatted = f"{scaled_value:.1f}"
+            else:
+                formatted = f"{scaled_value:.2f}"
+            return f"{formatted} {prefix}bucks"
+    
+    # For values less than 1000
+    return f"{value:.2f} bucks"
+
+
+# Portfolio Plotter Function
+def plot_portfolio(ding=None, togglelog = True):
+    date_form = ['%m-%d', '%m-%d', '%m-%d']
+    tm_prd = ['1mo', '3mo', '6mo']
+    tm_intrvl = ['1d', '5d', '1wk']
+
+    # Get the selected period from the dropdown
+    slctr = period_ddbox.current()
+    selected_period = period_ddbox.get()
+    current_period = tm_prd[slctr]
+
+    stock_data = []  # Store stock data
+    valid_tickers = []  # Store valid ticker symbols
+    market_caps = []  # Store market caps
+    
+    # Clear any existing plots
+    plt.close('all')
+    
+    # Filter out blank entries and collect data
+    for entry in stock_entries:
+        ticker = entry.get().strip()
+        if ticker:  # Only process non-empty tickers
+            try: #Try cached data first
+                 cached_data = data_cache.get(ticker, current_period)
+                 if cached_data is None: # If not in cache, fetch from yfinance
+                    stock = yf.Ticker(ticker)
+                    info = stock.info
+                    if 'symbol' in info and info['symbol'] == ticker:
+                        data = yf.download(ticker, period=current_period, interval=tm_intrvl[slctr])
+                        if not data.empty: # Store in cache
+                            data_cache.set(ticker, current_period, data, info)
+                            stock_data.append(data)
+                            valid_tickers.append(ticker)
+                            market_cap = info.get('marketCap', 0) if ticker != '^VIX' else 0
+                            market_caps.append(market_cap)
+                 else: # Use cached data
+                    stock_data.append(cached_data.data)
+                    valid_tickers.append(ticker)
+                    market_cap = cached_data.info.get('marketCap', 0) if ticker != '^VIX' else 0
+                    market_caps.append(market_cap)
+            except Exception as e:
+                print(f"Error processing {ticker}: {str(e)}")
+                continue
+    # Clear existing widgets
+    for widget in box_grid1.winfo_children():
+        widget.destroy()
+    for widget in box_grid2.winfo_children():
+        widget.destroy()
+
+    if not stock_data:
+        Label(box_grid1, text="No valid stock data to display.\nPlease enter valid ticker symbols.", justify='center').pack(expand=True)
+        Label(box_grid2, text="No valid stock data to display.\nPlease enter valid ticker symbols.", justify='center').pack(expand=True)
+        return
+
+    # Get market cap rankings (excluding VIX)
+    non_vix_indices = [i for i, ticker in enumerate(valid_tickers) if ticker != '^VIX']
+    non_vix_caps = [market_caps[i] for i in non_vix_indices]
+    rankings = np.zeros(len(market_caps))
+    
+    # Sort by market cap and assign rankings (1 to N)
+    sorted_indices = np.argsort(non_vix_caps)[::-1]  # Descending order
+    for rank, idx in enumerate(sorted_indices):
+        rankings[non_vix_indices[idx]] = rank + 1
+
+    current_datetime = datetime.now().strftime("%m-%d-%Y %H:%M:%S")
+
+    # Create the two figures we need
+    full_figure = plt.figure(figsize=(15, 4))
+    full_ax = full_figure.add_subplot(111)
+    
+     # Closing Price Plot (box_grid2)
+    for i, (data, ticker) in enumerate(zip(stock_data, valid_tickers)):
+        if togglelog: plot_data = data['Close']  # Linear scale
+        else: plot_data = np.log10(data['Close'])  # Log scale
+            
+        if ticker == '^VIX':
+            full_ax.plot(data.index, plot_data, 
+                        label=ticker,
+                        linestyle=':', 
+                        linewidth=2.5,
+                        color='purple')
+        else: full_ax.plot(data.index, plot_data, label=ticker)
+    
+    # Setup original price plot
+    full_ax.set_xlabel(f'Date-({current_datetime})')
+    full_ax.xaxis.set_major_formatter(mdates.DateFormatter(date_form[slctr]))
+    full_ax.set_ylabel('Asset Close Price ($)' if togglelog else 'log[Asset Close Price] ~(logibucks)')
+    full_ax.set_title('Asset Close Price Over Time' if togglelog else 'log[Asset Close Price] Over Time')
+    full_ax.legend()
+    full_ax.grid(True, linestyle='--', alpha=0.7)
+
+    # Create percentage plot figure
+    figure = plt.figure(figsize=(10, 5))
+    ax2 = figure.add_subplot(111)
+    
+    # Store lines and labels for sorting
+    lines = []
+    labels = []
+    
+    # Percentage Plot with Nonvix Market Cap Rankings
+    for i, (data, ticker) in enumerate(zip(stock_data, valid_tickers)):
+        close_prices = data['Close']
+        mean_price = close_prices.mean()
+        percentage_prices = (close_prices / mean_price - 1) * 100
+        
+        display_ticker = ticker.replace('-USD', '•')
+        
+        if ticker == '^VIX':
+            line = ax2.plot(data.index, percentage_prices, 
+                          linestyle=':', linewidth=3, color='purple')[0]
+            label = f'{ticker} (% of Avg)'
+            rank = float('inf')  # Put VIX at the end
+        else:
+            rank = len(rankings)-rankings[i]
+            formatted_cap = format_market_cap(market_caps[i])
+            line = ax2.plot(data.index, percentage_prices, 
+                          linewidth=1.25 * rank)[0]
+            label = f'{display_ticker} (<{int(rank)}>  {formatted_cap})'
+        
+        lines.append((rank, line))
+        labels.append((rank, label))
+    
+    # Sort lines and labels by rank
+    sorted_pairs = sorted(zip(lines, labels), key=lambda x: x[0][0])
+    sorted_lines = [pair[0][1] for pair in sorted_pairs]
+    sorted_labels = [pair[1][1] for pair in sorted_pairs]
+
+    # Setup percentage plot
+    ax2.set_xlabel(f'Date-({current_datetime})')
+    ax2.xaxis.set_major_formatter(mdates.DateFormatter(date_form[slctr]))
+    ax2.set_ylabel('Percentage of Average Price (%)')
+    ax2.set_title(f'Market Cap Ranked Asset Price Percentages Relative to {selected_period} Average (%)')
+    ax2.legend(sorted_lines, sorted_labels)
+    ax2.grid(True, linestyle='--', alpha=0.7)
+    ax2.axhline(y=0, color='r', linestyle='--', linewidth=3, alpha=0.5)
+
+    # Add plots to grids
+    full_canvas = FigureCanvasTkAgg(full_figure, box_grid2)
+    full_canvas.draw()
+    full_canvas_widget = full_canvas.get_tk_widget()
+    full_canvas_widget.pack(fill='both', expand=True)
+
+    canvas = FigureCanvasTkAgg(figure, box_grid1)
+    canvas.draw()
+    widget = canvas.get_tk_widget()
+    widget.grid(sticky='news')
+    box_grid1.rowconfigure(0, weight=1)
+    box_grid1.columnconfigure(0, weight=1)
+
+# Toggle Log (function)
+def toggle_log_scale():
+    global keyboard
+    keyboard.togglelog = not keyboard.togglelog
+    # Update button text to reflect current state
+    btn_togglelog.config(text='Linear' if keyboard.togglelog else 'Log')
+    # Replot with new scale
+    plot_portfolio(togglelog=keyboard.togglelog)
+
+#Clear Cache (function)
+def clear_cache():
+    data_cache.clear()
+    plot_portfolio(togglelog=keyboard.togglelog)
+
+#Toggle Keyboard (button)
+keyboard = PopupKeyboard(master, stock_entries, togglelog = True)
+btn_keyboard = Button(mstr_grid, font=('Helvetica', 4), text="⧇⧇⧇⧇\n⧇⧇⧇⧇⧇", command=keyboard.toggle_keyboard)
+btn_keyboard.grid(row=13, column=13, columnspan=2, rowspan=2, sticky='news')
+# Toggle Log (button)
+btn_togglelog = Button(mstr_grid, text="Linear", font = ('Helvetica', 6), command=toggle_log_scale)
+btn_togglelog.grid(row=13, column=15, columnspan=1, rowspan=2, sticky='news')
+# View Portfolio (button)
+btn_pltport = Button(mstr_grid, text="V I E W   P O R T F O L I O", font=('Helvetica', 8))
+btn_pltport.grid(row=12, column=0, rowspan=3, columnspan=12, sticky='news')
+btn_pltport.bind("<Button-1>", lambda e: plot_portfolio(togglelog=keyboard.togglelog))
+# Clear Cache (button)
+btn_clear_cache = Button(mstr_grid, text="↻", font=('Helvetica, Bold', 3), command=clear_cache)
+btn_clear_cache.grid(row=12, column=13, rowspan =1, columnspan=3, sticky='news')
+
+# Auto-run the plot after window creation
+master.after(600, lambda: plot_portfolio(togglelog=keyboard.togglelog))
+
+master.mainloop()
